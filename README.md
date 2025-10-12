@@ -1,1 +1,0 @@
-# socka-czsk-euro

@@ -1,0 +1,5 @@
+{
+  "r.rterm.linux": "/usr/bin/R",
+  "r.lsp.path": "/usr/bin/R",
+  "r.alwaysUseActiveTerminal": true
+}

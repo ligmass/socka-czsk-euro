@@ -1,0 +1,5 @@
+outcome,n,r2,r2_within,se_type
+hicp_yoy,456,0.965025085929148,0.0132026035350112,cluster: country+date
+unemp_rate,480,0.966369537874421,0.197708702658247,cluster: country+date
+ln_imp,480,0.99591307543247,0.397089238879907,cluster: country+date
+ln_exp,480,0.996106652408384,0.417247109664325,cluster: country+date

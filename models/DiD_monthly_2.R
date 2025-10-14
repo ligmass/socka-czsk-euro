@@ -137,6 +137,10 @@ gof_row <- function(m, y) {
   }
 }
 
+
+
+
+
 # ---- MAIN DiD (CSV) ----------------------------------------------------------
 main_rows <- vector("list", length(outcomes)); names(main_rows) <- outcomes
 gof_rows  <- vector("list", length(outcomes)); names(gof_rows)  <- outcomes
@@ -233,6 +237,35 @@ for (y in outcomes) {
   cz_rows[[y]] <- tt
 }
 fwrite(rbindlist(cz_rows, fill = TRUE), "tables2/did_treat_cz.csv")
+
+library(fixest)
+
+print_full_summary <- function(m, outcome, cluster_spec = ~ id + time) {
+  cat("\n========================\nOutcome:", outcome, "\n")
+
+  # 1) coefficients + three SE choices
+  cat("\n-- Coefs w/ classical SEs --\n")
+  print(summary(m, vcov = "iid"))
+
+  cat("\n-- Coefs w/ HC (heteroskedasticity-robust) SEs --\n")
+  print(summary(m, vcov = "hetero"))
+
+  cat("\n-- Coefs w/ two-way cluster SEs --\n")
+  print(summary(m, cluster = cluster_spec))
+
+  # 2) GOF: AIC/BIC, R2 variants, LL, df, n, RMSE, etc.
+  fs <- fixest::fitstat(m,
+    ~ aic + bic + ll + df + n + rmse + r2 + r2_within + r2_adj
+  )
+  cat("\n-- Fit stats --\n")
+  print(fs)
+}
+
+for (y in outcomes) {
+  m <- fit_twfe(y)
+  print_full_summary(m, y)
+}
+
 
 # ---- Optional OLS (set env vars to enable) -----------------------------------
 ols_y <- Sys.getenv("OLS_Y", unset = "")

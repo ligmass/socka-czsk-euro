@@ -1,0 +1,41 @@
+
+========================
+Outcome: hicp_yoy 
+
+-- Coefs w/ classical SEs (IID) --
+OLS estimation, Dep. Var.: hicp_yoy
+Observations: 456
+Fixed-effects: country: 2,  date: 228
+Standard-errors: IID 
+   Estimate Std. Error  t value Pr(>|t|)    
+D -0.393705   0.226413 -1.73888 0.083417 .  
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+RMSE: 0.693821     Adj. R2: 0.929586
+                 Within R2: 0.013203
+
+-- Coefs w/ HC (heteroskedasticity-robust) SEs --
+OLS estimation, Dep. Var.: hicp_yoy
+Observations: 456
+Fixed-effects: country: 2,  date: 228
+Standard-errors: Heteroskedasticity-robust 
+   Estimate Std. Error  t value Pr(>|t|) 
+D -0.393705   0.305732 -1.28775  0.19915 
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+RMSE: 0.693821     Adj. R2: 0.929586
+                 Within R2: 0.013203
+
+-- Coefs w/ TWO-WAY clustered SEs: ~ country + date --
+OLS estimation, Dep. Var.: hicp_yoy
+Observations: 456
+Fixed-effects: country: 2,  date: 228
+Standard-errors: Clustered (country & date) 
+   Estimate Std. Error  t value Pr(>|t|) 
+D -0.393705   0.304723 -1.29201  0.41933 
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+RMSE: 0.693821     Adj. R2: 0.929586
+                 Within R2: 0.013203
+
+-- Fit stats --

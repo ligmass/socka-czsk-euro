@@ -1,0 +1,8 @@
+DATA_PATH: data/monthly_panel_clean.csv
+ADOPT_DATE: 2009-01-01
+PLACEBOS: 2007-01-01, 2011-01-01
+TREATED_DEF: country in {SK}
+FIXED_EFFECTS: country + date
+CLUSTERS: country + date
+CONTROLS: (none)
+OUTCOMES: hicp_yoy, unemp_rate, ln_imp, ln_exp, log_imp, log_exp, hicp, imports_world_meur, exports_world_meur, repo, mro, fx_eur, fx_vol, df, D

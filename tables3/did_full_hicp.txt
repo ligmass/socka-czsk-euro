@@ -1,31 +1,31 @@
 
 ========================
-Outcome: hicp_yoy 
+Outcome: hicp 
 
 -- Coefs (IID) [D + controls] --
-    Estimate Std. Error   t value   Pr(>|t|)
-D -0.3937052  0.2264129 -1.738882 0.08341731
+   Estimate Std. Error   t value     Pr(>|t|)
+D -2.192611  0.3846251 -5.700644 3.517536e-08
 
 -- Coefs (HC) [D + controls] --
-    Estimate Std. Error   t value  Pr(>|t|)
-D -0.3937052  0.3057316 -1.287748 0.1991508
+   Estimate Std. Error   t value     Pr(>|t|)
+D -2.192611  0.2651773 -8.268474 9.606278e-15
 
 -- Coefs (cluster: country + time_id) [D + controls] --
-    Estimate Std. Error   t value  Pr(>|t|)
-D -0.3937052  0.3047227 -1.292011 0.4193268
+   Estimate Std. Error   t value   Pr(>|t|)
+D -2.192611  0.2643461 -8.294471 0.07638365
 
 -- Coefs (cluster: time_id) [D + controls] --
-    Estimate Std. Error   t value  Pr(>|t|)
-D -0.3937052  0.3057301 -1.287754 0.1991428
+   Estimate Std. Error  t value     Pr(>|t|)
+D -2.192611  0.2651761 -8.26851 9.460163e-15
 
 -- Fit stats --
 Available types:
  n, ll, aic, bic, rmse, g, my, theta, sq.cor, cor2, r2, ar2, pr2, apr2, par2, wr2, war2, awr2, wpr2, pwr2, wapr2, wpar2, awpr2, apwr2, pawr2, pwar2, f, wf, ivf, ivf1, ivf2, ivfall, wald, ivwald, ivwald1, ivwald2, ivwaldall, wh, sargan, lr, wlr, kpr, cd, f.stat, wf.stat, ivf.stat, ivf1.stat, ivf2.stat, ivfall.stat, wald.stat, ivwald.stat, ivwald1.stat, ivwald2.stat, ivwaldall.stat, wh.stat, sargan.stat, lr.stat, wlr.stat, kpr.stat, cd.stat, f.p, wf.p, ivf.p, ivf1.p, ivf2.p, ivfall.p, wald.p, ivwald.p, ivwald1.p, ivwald2.p, ivwaldall.p, wh.p, sargan.p, lr.p, wlr.p, kpr.p, cd.p 
-           AIC: 1,420.7
-           BIC: 2,368.9
-Log-Likelihood: -480.3
-          RMSE: 0.693821
-            R2: 0.965025
-     Within R2: 0.013203
-       Adj. R2: 0.929586
-  Observations: 456
+           AIC: 2,086.7
+           BIC: 3,096.7
+Log-Likelihood: -801.3
+          RMSE: 1.28469
+            R2: 0.99275
+     Within R2: 0.120139
+       Adj. R2: 0.985409
+  Observations: 480

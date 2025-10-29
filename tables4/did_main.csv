@@ -1,0 +1,8 @@
+outcome,kept_controls,beta_D_iid,beta_D_hc,beta_D_clt,beta_D_cl2
+hicp_yoy,"fx_vol,fx_eur",,,,
+unemp_rate,"fx_vol,fx_eur",,,,
+hicp,"fx_vol,fx_eur",,,,
+imports_world_meur,"fx_vol,fx_eur",,,,
+exports_world_meur,"fx_vol,fx_eur",,,,
+log_imp,"fx_vol,fx_eur",,,,
+log_exp,"fx_vol,fx_eur",,,,

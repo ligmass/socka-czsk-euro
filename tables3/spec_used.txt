@@ -1,8 +1,11 @@
-DATA_PATH: data/monthly_panel_clean.csv
-ADOPT_DATE: 2009-01-01
-PLACEBOS: 2007-01-01, 2011-01-01
-TREATED_DEF: country in {SK}
-FIXED_EFFECTS: country + time_id
-CLUSTERS: country + time_id (or time_id only)
-CONTROLS: (none)
-OUTCOMES: hicp_yoy, unemp_rate, ln_imp, ln_exp, hicp, imports_world_meur, exports_world_meur, repo, mro, fx_eur, fx_vol, log_imp, log_exp
+Spec used
+=========
+in_path:  /workspaces/socka-czsk-euro/data/monthly_panel_clean.csv 
+date range:  2004-01-01  ..  2023-12-01 
+countries: CZ, SK
+outcomes:  hicp_yoy, unemp_rate, ln_imp, ln_exp, hicp, imports_world_meur, exports_world_meur, repo, mro, fx_eur, fx_vol, log_imp, log_exp 
+controls_candidate:  fx_eur, fx_vol, repo, mro 
+treat_map:
+   country treat_date
+    <char>     <IDat>
+1:      CZ 2009-01-01

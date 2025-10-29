@@ -1,0 +1,40 @@
+outcome,reason
+hicp_yoy,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+unemp_rate,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+ln_imp,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+ln_exp,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+hicp,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+imports_world_meur,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+exports_world_meur,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+repo,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+mro,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+fx_eur,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+fx_vol,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+log_imp,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."
+log_exp,"Argument 'fixef', when provided, must be a character vector of variable
+ names.
+PROBLEM: it is not a vector, it is of class 'formula'."

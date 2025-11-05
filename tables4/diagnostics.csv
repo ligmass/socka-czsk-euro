@@ -1,0 +1,9 @@
+outcome,n,ok
+hicp_yoy,456,TRUE
+unemp_rate,480,TRUE
+hicp,480,TRUE
+imports_world_meur,480,TRUE
+exports_world_meur,480,TRUE
+mro,0,FALSE
+log_imp,480,TRUE
+log_exp,480,TRUE

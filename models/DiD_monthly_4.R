@@ -3,301 +3,299 @@
 suppressPackageStartupMessages({
   library(data.table)
   library(fixest)
-  library(lmtest)
-  library(sandwich)
-  library(ggplot2)
+  wcb_ok <- requireNamespace("fwildclusterboot", quietly = TRUE)
+  if (!wcb_ok) message("NOTE: fwildclusterboot not installed -> wild cluster p-values will be NA.")
+  if (identical(Sys.getenv("USE_WCB"), "0")) { wcb_ok <- FALSE; message("NOTE: USE_WCB=0 -> skipping wild cluster bootstrap.") }
 })
 
-# ----------------- CONFIG -----------------
-in_path  <- "/workspaces/socka-czsk-euro/data/monthly_panel_clean.csv"
-outdir   <- "tables4"
-dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+set.seed(42)
+if (requireNamespace("dqrng", quietly = TRUE)) dqrng::dqset.seed(42L)
 
-outcomes <- c("hicp_yoy","unemp_rate","hicp",
-              "imports_world_meur","exports_world_meur",
-              "mro","log_imp","log_exp")
+# -------------------- config --------------------
+VERBOSE <- identical(Sys.getenv("VERBOSE", "1"), "1")
+args <- commandArgs(trailingOnly = TRUE)
+DATA_PATH <- if (length(args) >= 1) args[1] else Sys.getenv("DID_DATA", "data/monthly_panel_clean.csv")
 
-# keep the list broad; selection will drop NA-heavy ones automatically
-controls_candidate <- c("fx_eur","fx_vol","repo","mro")
-min_n_obs <- 60L
+OUTCOMES <- c("hicp_yoy","unemp_rate","hicp","imports_world_meur","exports_world_meur","mro","log_imp","log_exp")
+CAND_CONTROLS <- c("fx_eur","fx_vol","repo","mro")
 
-# ----------------- LOAD + NORMALIZE -----------------
-dat <- fread(in_path)
+TREAT_DATE <- as.IDate("2009-01-01")
+OUT_DIR <- "tables4"
+dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-# lower-case names
-setnames(dat, names(dat), tolower(names(dat)))
-
-# try to normalize common alt names
-if (!"country" %in% names(dat)) {
-  for (alt in c("geo","cn","iso2","country_code")) {
-    if (alt %in% names(dat)) { setnames(dat, alt, "country"); break }
-  }
-}
-if (!"date" %in% names(dat)) {
-  for (alt in c("period","month","time","date_month")) {
-    if (alt %in% names(dat)) { setnames(dat, alt, "date"); break }
-  }
+# -------------------- helpers --------------------
+balance_by_time <- function(dt) {
+  if (!nrow(dt)) return(dt)
+  full_t <- dt[, .N, by = .(time_id, country)][, .N, by = time_id][N == 2L, time_id]
+  dt[time_id %in% full_t]
 }
 
-# types
-dat[, country := as.character(country)]
-if (!inherits(dat$date, "Date")) suppressWarnings(dat[, date := as.IDate(date)])
-
-if (!"time_id" %in% names(dat)) {
-  setorder(dat, date)
-  udates <- sort(unique(dat$date))
-  dat[, time_id := match(date, udates)]
-} else {
-  dat[, time_id := as.integer(time_id)]
-}
-
-cat("\n-- columns present --\n"); print(names(dat))
-if (!all(c("country","date","time_id") %in% names(dat))) {
-  stop("Required columns missing after normalization. Have: ",
-       paste(names(dat), collapse=", "))
-}
-
-# ----------------- TREATMENT CODING -----------------
-# CZ 'treated' (counterfactual adoption effect) from 2009-01-01; SK untreated
-treat_date_map <- data.table(
-  country = c("CZ","SK"),
-  treat_date = as.IDate(c("2009-01-01", NA))
-)
-
-dat <- treat_date_map[dat, on="country"]
-dat[, treated := as.integer(!is.na(treat_date))]
-dat[, post    := as.integer(!is.na(treat_date) & date >= treat_date)]
-dat[, D       := as.integer(treated==1 & post==1)]
-dat[, rel     := ifelse(treated==1, as.integer(time_id - time_id[date==treat_date][1]), NA_integer_),
-    by = country]
-
-# sanity
-san <- dat[, .(n=.N, post_ones = sum(post, na.rm=TRUE), D_ones=sum(D, na.rm=TRUE)), by=country]
-cat("\n-- treat/post sanity --\n"); print(san)
-
-# ----------------- MISSINGNESS POLICY FOR CONTROLS -----------------
 miss_audit <- function(d, vars) {
-  rbindlist(lapply(vars, \(v) {
+  rbindlist(lapply(vars, function(v) {
     data.table(
-      var = v,
-      pNA_all        = mean(is.na(d[[v]])),
-      pNA_treatpost  = mean(is.na(d[treated==1 & post==1][[v]])),
-      pNA_treatpre   = mean(is.na(d[treated==1 & post==0][[v]]))  # NEW: this catches fx_eur problem
+      var           = v,
+      pNA_all       = mean(is.na(d[[v]])),
+      pNA_treatpost = mean(is.na(d[treated == 1 & post == 1][[v]])),
+      pNA_treatpre  = mean(is.na(d[treated == 1 & post == 0][[v]])),
+      pNA_control   = mean(is.na(d[treated == 0][[v]]))
     )
   }))
 }
 
-aud_pre  <- miss_audit(dat, controls_candidate)
-cat("\n-- missingness audit (pre-fill) --\n"); print(aud_pre)
-
-# (no fills here)
-
-aud_post <- miss_audit(dat, controls_candidate)
-cat("\n-- missingness audit (post-fill) --\n"); print(aud_post)
-
-# drop controls with heavy NA anywhere OR any NA in treated-pre or treated-post
-bad <- aud_post[pNA_all > .40 | pNA_treatpost > .05 | pNA_treatpre > .05, var]
-kept_controls <- setdiff(controls_candidate, bad)
-
-cat("\n-- controls dropped due to NA after filter: ",
-    ifelse(length(bad)==0,"(none)", paste(bad, collapse=", ")), "\n")
-cat("-- controls kept after NA policy: ",
-    ifelse(length(kept_controls)==0,"(none)", paste(kept_controls, collapse=", ")), "\n")
-
-
-# ----------------- HELPERS -----------------
-`%+%` <- function(a,b) c(a,b)
-
-select_controls <- function(dat, y, candidates, min_n = 100L) {
-  if (length(candidates)) {
-    na_counts <- sapply(candidates, \(v) sum(is.na(dat[[v]])))
-    cand_ord  <- names(sort(na_counts, decreasing = FALSE))
-  } else cand_ord <- character(0)
-
-  base_cols <- c("country","time_id","D", y)
-  df_base <- na.omit(dat[, ..base_cols])
-  if (nrow(df_base) < min_n || uniqueN(df_base$D) < 2L) {
-    return(list(kept = character(0), dfm = df_base))
-  }
-  kept <- character(0); best_dfm <- df_base
-  for (cx in cand_ord) {
-    try_cols <- c(base_cols, kept, cx)
-    df_try  <- na.omit(dat[, ..try_cols])
-    if (nrow(df_try) >= min_n && uniqueN(df_try$D) >= 2L) {
-      kept <- c(kept, cx); best_dfm <- df_try
-    }
-  }
-  list(kept = kept, dfm = best_dfm)
-}
-
-print_compact <- function(m, dfm, label_outcome) {
-  cat("\n========================\nOutcome:", label_outcome, "\n")
-
-  show_row <- function(label, vcov = NULL) {
-    cat(sprintf("\n-- Coefs (%s) [D + controls] --\n", label))
-    if (inherits(m,"fixest")) {
-      sm <- tryCatch(summary(m, vcov = vcov), error=function(e) NULL)
-      if (is.null(sm) || !("D" %in% names(coef(sm)))) {
-        cat("D not estimated.\n"); return(invisible())
-      }
-      ct <- as.data.frame(coeftable(sm))
-      if ("D" %in% rownames(ct)) print(ct["D", , drop=FALSE]) else cat("D not estimated.\n")
-    } else {
-      vv <- if (is.null(vcov)) sandwich::vcovHC(m, type = "const") else vcov
-      ct <- tryCatch(lmtest::coeftest(m, vcov.=vv), error=function(e) NULL)
-      if (is.null(ct)) { cat("coeftest failed.\n"); return(invisible()) }
-      rn <- rownames(coef(summary(m))); rownames(ct) <- rn[seq_len(nrow(ct))]
-      if ("D" %in% rownames(ct)) print(as.data.frame(ct["D", , drop=FALSE])) else cat("D not estimated.\n")
-    }
-  }
-
-  # time clustering
-  show_row("cluster: time_id", ~ time_id)
-  # iid + HC
-  show_row("IID", "iid")
-  show_row("HC", "hetero")
-  # two-way clustering
-  cat("\n-- Coefs (cluster: country + time_id) [D + controls] --\n")
-  if (inherits(m,"fixest")) {
-    sm2 <- tryCatch(summary(m, cluster = ~ country + time_id), error=function(e) NULL)
-    if (!is.null(sm2) && "D" %in% names(coef(sm2))) {
-      print(as.data.frame(coeftable(sm2)["D", , drop=FALSE]))
-    } else cat("D not estimated.\n")
-  } else {
-    vc2 <- sandwich::vcovCL(m, cluster = interaction(dfm$country, dfm$time_id))
-    ct  <- tryCatch(lmtest::coeftest(m, vcov.=vc2), error=function(e) NULL)
-    if (!is.null(ct) && "D" %in% rownames(ct)) {
-      print(as.data.frame(ct["D", , drop=FALSE]))
-    } else cat("D not estimated.\n")
-  }
-
-  # fit stats
-  cat("\n-- Fit stats --\n")
-  if (inherits(m,"fixest")) {
-    avail <- tryCatch(fixest::fitstat(m, show_types = TRUE), error=function(e) NULL)
-    if (is.null(avail)) { print(avail); return(invisible()) }
-    want <- c("n","ll","aic","bic","rmse","r2","ar2","wr2")
-    use  <- intersect(want, rownames(avail))
-    print(fixest::fitstat(m, as.formula(paste("~", paste(use, collapse=" + ")))))
-  } else {
-    sm <- summary(m)
-    print(list(n = nobs(m), r2 = sm$r.squared, r2_adj = sm$adj.r.squared,
-               aic = tryCatch(AIC(m), error=function(e) NA_real_),
-               bic = tryCatch(BIC(m), error=function(e) NA_real_)))
-  }
-}
-
-fit_one <- function(dfm, y, kept_ctrls) {
-  stopifnot(all(c("country","time_id") %in% names(dfm)))
-  rhs <- c("D", kept_ctrls); rhs_txt <- paste(rhs, collapse = " + ")
-  fml <- as.formula(sprintf("%s ~ %s | country + time_id", y, rhs_txt))
-  m <- tryCatch(feols(fml, data = dfm), error=function(e) NULL)
-  if (!is.null(m)) return(list(model=m, rhs_txt=rhs_txt))
-  fml_lm <- as.formula(sprintf("%s ~ %s + factor(country) + factor(time_id)", y, rhs_txt))
-  m2 <- tryCatch(stats::lm(fml_lm, data = dfm), error=function(e) NULL)
-  list(model=m2, rhs_txt=rhs_txt)
-}
-
-# ----------------- MAIN LOOP -----------------
-main_rows <- list()
-gof_rows  <- list()
-
-cat("outcomes used:", paste(outcomes, collapse=", "), "\n")
-cat("controls used (candidate):", paste(controls_candidate, collapse=", "), "\n\n")
-
-for (y in outcomes) {
-  if (!(y %in% names(dat))) {
-    cat(sprintf("[skip:%s] outcome not found.\n\n", y)); next
-  }
-  sel  <- select_controls(dat, y, kept_controls, min_n = min_n_obs)
-  # ensure treated-pre exists in the model frame; if not, iteratively drop NA-heavy controls
-if (nrow(sel$dfm[treated==1 & post==0]) == 0L && length(sel$kept) > 0L) {
-  # re-rank kept controls by NA share within treated-pre, drop worst offenders until CZ-pre reappears
-  na_rank <- sort(sapply(sel$kept, \(v) mean(is.na(dat[treated==1 & post==0][[v]]))), decreasing = TRUE)
-  kept_fix <- sel$kept
-  dfm_fix  <- sel$dfm
-  for (cx in names(na_rank)) {
-    try_keep <- setdiff(kept_fix, cx)
-    try_cols <- c("country","time_id","D", y, try_keep)
+select_controls <- function(dat, y, cand_controls, min_n = 100L) {
+  kept <- character(0)
+  base_cols <- c("country","time_id","treated","post","D", y)
+  for (cvar in cand_controls) {
+    try_cols <- unique(c(base_cols, kept, cvar))
+    if (!all(try_cols %in% names(dat))) next
     df_try <- na.omit(dat[, ..try_cols])
-    if (nrow(df_try[treated==1 & post==0]) > 0L && uniqueN(df_try$D) > 1L) {
-      kept_fix <- try_keep; dfm_fix <- df_try
+    df_try <- balance_by_time(df_try)
+    if (nrow(df_try) >= min_n &&
+        uniqueN(df_try$country) == 2L &&
+        uniqueN(df_try$time_id)  >  1L &&
+        uniqueN(df_try$D)        >  1L &&
+        nrow(df_try[treated == 1 & post == 0]) > 0L) {
+      kept <- c(kept, cvar)
     }
   }
-  sel$kept <- kept_fix; sel$dfm <- dfm_fix
+  if (length(kept) == 0L) {
+    for (k in length(cand_controls):0) {
+      try_cols <- unique(c(base_cols, cand_controls[seq_len(k)]))
+      df_try <- na.omit(dat[, ..try_cols])
+      df_try <- balance_by_time(df_try)
+      if (nrow(df_try) >= min_n &&
+          uniqueN(df_try$country) == 2L &&
+          uniqueN(df_try$time_id)  >  1L &&
+          uniqueN(df_try$D)        >  1L &&
+          nrow(df_try[treated == 1 & post == 0]) > 0L) {
+        kept <- cand_controls[seq_len(k)]
+        break
+      }
+    }
+  }
+  kept
 }
 
-  kept <- sel$kept; dfm <- sel$dfm
+mk_twfe_formula <- function(y, controls) {
+  rhs <- if (length(controls)) paste("D +", paste(controls, collapse = " + ")) else "D"
+  as.formula(paste0(y, " ~ ", rhs))
+}
 
-  cat(sprintf("\n[diagnostics: %s ] kept: %s\n", y, ifelse(length(kept)==0," (none)", paste(kept, collapse=", "))))
-  cat(sprintf("[diagnostics: %s ] dropped: %s\n", y,
-              ifelse(length(setdiff(kept_controls, kept))==0,"(none)", paste(setdiff(kept_controls, kept), collapse=", "))))
+mk_sunab_formula <- function(y, controls, refp = -1) {
+  rhs <- paste0("sunab(cohort, time_id, ref.p = ", refp, ")",
+                if (length(controls)) paste0(" + ", paste(controls, collapse = " + ")) else "")
+  as.formula(paste0(y, " ~ ", rhs))
+}
 
-  # guards
-  if (nrow(dfm) < min_n_obs || uniqueN(dfm$country) < 2L || uniqueN(dfm$time_id) < 2L) {
-    cat(sprintf("[skip:%s] Too few complete observations.\n\n", y)); next
-  }
-  if (uniqueN(dfm$D) < 2L) {
-    cat(sprintf("[skip:%s] D has no variation after filtering.\n\n", y)); next
-  }
-
-  fit <- fit_one(dfm, y, kept)
-  m <- fit$model
-  if (is.null(m)) { cat(sprintf("[skip:%s] estimation failed.\n\n", y)); next }
-
-  # report
-  print_compact(m, dfm, y)
-
-  # collect rows
-  coef_safe <- function(model, vc) {
-    if (inherits(model,"fixest")) {
-      sm <- tryCatch(summary(model, vcov=vc), error=function(e) NULL)
-      if (is.null(sm) || !("D" %in% names(coef(sm)))) return(NA_real_)
-      as.numeric(coeftable(sm)["D","Estimate"])
-    } else NA_real_
-  }
-  main_rows[[length(main_rows)+1]] <- data.table(
-    outcome = y,
-    kept_controls = ifelse(length(kept)==0,"(none)", paste(kept, collapse=",")),
-    beta_D_iid = coef_safe(m, "iid"),
-    beta_D_hc  = coef_safe(m, "hetero"),
-    beta_D_clt = coef_safe(m, ~ time_id),
-    beta_D_cl2 = {
-      sm2 <- tryCatch(summary(m, cluster = ~ country + time_id), error=function(e) NULL)
-      if (is.null(sm2) || !("D" %in% names(coef(sm2)))) NA_real_ else as.numeric(coeftable(sm2)["D","Estimate"])
-    }
-  )
-
-  if (inherits(m,"fixest")) {
-    gof_rows[[length(gof_rows)+1]] <- data.table(
-      outcome = y,
-      n = nobs(m),
-      aic = tryCatch(AIC(m), error=function(e) NA_real_),
-      bic = tryCatch(BIC(m), error=function(e) NA_real_),
-      r2  = tryCatch(as.numeric(fitstat(m)["r2"]), error=function(e) NA_real_),
-      ar2 = tryCatch(as.numeric(fitstat(m)["ar2"]), error=function(e) NA_real_)
+wcb_p <- function(m, param) {
+  if (!isTRUE(wcb_ok)) return(NA_real_)
+  err <- NULL
+  for (type in c("rademacher","mammen")) {
+    bt <- tryCatch(
+      fwildclusterboot::boottest(m, param = param, clustid = ~ country,
+                                 bootcluster = "country", B = 999,
+                                 impose_null = TRUE, type = type),
+      error = function(e) { err <- conditionMessage(e); NULL }
     )
+    if (!is.null(bt)) return(as.numeric(bt$p_val))
   }
+  if (VERBOSE) message(sprintf("boottest() failed for '%s': %s", param, err))
+  NA_real_
 }
 
-# ----------------- WRITE -----------------
-if (length(main_rows)) fwrite(rbindlist(main_rows), file.path(outdir,"did_main.csv"))
-if (length(gof_rows))  fwrite(rbindlist(gof_rows),  file.path(outdir,"did_main_gof.csv"))
-fwrite(head(dat,10), file.path(outdir,"data_head.csv"))
-
-cat("\nDone. Outputs in", outdir, ":\n- data_head.csv\n- did_main.csv, did_main_gof.csv\n")
-
-# ----------------- OPTIONAL: quick ES plot (safe) -----------------
-# writes only if hicp_yoy present and rel defined for treated country
-try({
-  if ("hicp_yoy" %in% names(dat)) {
-    es_df <- dat[treated==1 & !is.na(rel) & !is.na(hicp_yoy),
-                 .(y = mean(hicp_yoy, na.rm=TRUE)), by=rel][order(rel)]
-    gg <- ggplot(es_df, aes(x=rel, y=y)) +
-      geom_hline(yintercept = es_df[rel<0, mean(y, na.rm=TRUE)], linetype="dashed") +
-      geom_vline(xintercept = 0, linetype="dotted") +
-      geom_line() + geom_point() +
-      labs(x="months relative to 2009-01 (CZ)", y="avg HICP yoy (treated)", title="Event-style mean path (treated)")
-    ggsave(filename = file.path(outdir,"es_hicp_yoy.png"), plot=gg, width=7, height=4, dpi=150)
+print_snapshot <- function(y, twfe_row, es_info = NULL, pre = NULL) {
+  cat("\n========================\n")
+  cat(sprintf("Outcome: %s\n", y))
+  if (!is.null(twfe_row)) {
+    cat("-- TWFE (hetero SEs; wild-cluster p by country) --\n")
+    print(data.table(Estimate = twfe_row$coef, `Std. Error` = twfe_row$se,
+                     `t value` = twfe_row$t, `Pr(>|t|)` = twfe_row$p_naive,
+                     `p_wild` = twfe_row$p_wcb, n = twfe_row$n))
   }
-}, silent = TRUE)
+  if (!is.null(es_info)) {
+    if (!is.null(es_info$path) && nrow(es_info$path)) {
+      cat("\n-- Event-study (tau in [-12,24]) --\n")
+      print(head(es_info$path[tau >= -12 & tau <= 24, .(tau, beta, se, p_wcb)], 12))
+      if (nrow(es_info$path) > 12) cat("... (full path in tables4/did_eventstudy_paths.csv)\n")
+    } else {
+      cat("\n-- Event-study --\n(no ES terms estimated — fell back to GAP-ITS if available)\n")
+    }
+  }
+  if (!is.null(pre)) {
+    cat("\n-- Pretrend joint test (all leads = 0) --\n")
+    print(pre)
+  }
+  cat("\n")
+}
+
+# ---------- ES try: sunab with country FE only ----------
+fit_es_sunab_countryFE <- function(dd, y, controls, refp = -1) {
+  f_es  <- mk_sunab_formula(y, controls, refp)
+  m_es  <- feols(f_es, data = dd, fixef = "country", warn = FALSE, notes = FALSE)
+  cn    <- names(coef(m_es))
+  keep  <- grepl("sunab\\(", cn) & grepl("::t=\\-?\\d+", cn)
+  if (!any(keep)) return(NULL)
+  es    <- data.table(term = cn[keep], beta = coef(m_es)[keep])
+  es[, tau := as.integer(sub(".*::t=\\s*([-]?[0-9]+).*", "\\1", term))]
+  V     <- vcov(m_es, vcov = "hetero")
+  es[, se := sqrt(diag(V)[match(term, rownames(V))])]
+  for (h in c(0,12)) if (h %in% es$tau) {
+    par <- es[tau == h, term][1]
+    es[tau == h, p_wcb := wcb_p(m_es, par)]
+  }
+  setorder(es, tau)
+  list(model = m_es, path = es)
+}
+
+# ---------- GAP-ITS fallback ----------
+# Build CZ–SK gap and run ITS with manual event time
+fit_gap_its <- function(d, y, controls, treat_date, nw_lag = 12L) {
+  # wide by country for y and controls
+  vals <- unique(c(y, controls))
+  w <- dcast(d, date + time_id ~ country, value.var = vals)
+  # assume exactly "CZ" and "SK" columns exist for each var
+  y_gap <- w[[paste0(y, "_CZ")]] - w[[paste0(y, "_SK")]]
+  X <- NULL
+  if (length(controls)) {
+    X <- lapply(controls, function(cv) w[[paste0(cv, "_CZ")]] - w[[paste0(cv, "_SK")]])
+    X <- as.data.table(setNames(X, paste0(controls, "_gap")))
+  } else {
+    X <- data.table()
+  }
+  # event time
+  t0 <- unique(d[date == treat_date, time_id])
+  if (length(t0) != 1L) stop("treatment date not found in time_id grid")
+  et <- w$time_id - t0
+  dt <- data.table(y_gap = y_gap, et = et, time_id = w$time_id, date = w$date, X)
+  dt <- dt[!is.na(y_gap)]
+  # ITS with manual event dummies; ref = -1
+  f_rhs <- paste0("i(et, ref = -1)", if (ncol(X)) paste0(" + ", paste(names(X), collapse = " + ")) else "")
+  fml <- as.formula(paste0("y_gap ~ ", f_rhs))
+  m <- feols(fml, data = dt, warn = FALSE, notes = FALSE)
+  s <- summary(m, vcov = "NW", nw = nw_lag)
+  # pull ES-like path
+  cn <- names(coef(m))
+  keep <- grepl("^i\\(et, ref = -1\\)::", cn)
+  es <- data.table(term = cn[keep], beta = coef(m)[keep])
+  es[, tau := as.integer(sub("^i\\(et, ref = -1\\)::\\s*([-]?[0-9]+)$", "\\1", term))]
+  V <- vcov(m, vcov = "NW", nw = nw_lag)
+  es[, se := sqrt(diag(V)[match(term, rownames(V))])]
+  setorder(es, tau)
+  # joint pretrend (all tau<0)
+  lead_idx <- which(es$tau < 0)
+  pre <- if (length(lead_idx)) {
+    LHS <- which(keep)[es$tau < 0]
+    W <- wald(m, LHS ~ 0, vcov = "NW", nw = nw_lag)
+    data.table(K = length(lead_idx), stat = unname(W$stat), p = unname(W$p), df = paste0(W$df1, ",", W$df2), n = nobs(m))
+  } else data.table(K = 0, stat = NA_real_, p = NA_real_, df = NA, n = nobs(m))
+  list(model = m, path = es, pre = pre, data = dt)
+}
+
+# ---------- main per-outcome block ----------
+fit_block <- function(dat, y, controls, treat_date) {
+  dd <- copy(dat)
+  dd[, post := fifelse(date >= treat_date, 1L, 0L)]
+  dd[, D    := treated * post]
+  t0 <- unique(dd[date == treat_date, time_id])
+  if (length(t0) != 1L) stop("treatment date not found in time_id grid")
+  dd[, cohort := fifelse(treated == 1L, t0, 0L)]
+  dd <- balance_by_time(na.omit(dd[, c("country","time_id","date","treated","post","D","cohort", y, controls), with = FALSE]))
+  if (!nrow(dd) || uniqueN(dd$D) == 1L) {
+    return(list(twfe_row = NULL, es_info = NULL, es_pre = NULL, diag = data.table(outcome = y, n = nrow(dd), ok = FALSE)))
+  }
+  # TWFE snapshot
+  f_twfe <- mk_twfe_formula(y, controls)
+  m_twfe <- feols(f_twfe, data = dd, fixef = c("country","time_id"), warn = FALSE, notes = FALSE)
+  s_twfe <- summary(m_twfe, vcov = "hetero")
+  d_row <- tryCatch(s_twfe$coeftable["D", , drop = FALSE], error = function(e) NULL)
+  twfe_row <- if (is.null(d_row)) NULL else data.table(
+    outcome = y, coef = unname(d_row[1]), se = unname(d_row[2]), t = unname(d_row[3]),
+    p_naive = unname(d_row[4]), p_wcb = wcb_p(m_twfe, "D"), n = nobs(m_twfe), spec = "twfe"
+  )
+  # Try ES via sunab + country FE
+  es_info <- tryCatch(fit_es_sunab_countryFE(dd, y, controls, refp = -1), error = function(e) NULL)
+  if (is.null(es_info) || !nrow(es_info$path)) {
+    # Fallback: GAP–ITS
+    gap <- fit_gap_its(dd, y, controls, treat_date = treat_date, nw_lag = 12L)
+    es_info <- list(model = gap$model, path = gap$path)
+    es_pre  <- gap$pre
+  } else {
+    # Pretrend under sunab (cluster-robust HC)
+    cn <- names(coef(es_info$model))
+    lead_idx <- which(grepl("::t=\\-", cn))
+    es_pre <- if (length(lead_idx)) {
+      W <- wald(es_info$model, lead_idx ~ 0, vcov = "hetero")
+      data.table(K = length(lead_idx), stat = unname(W$stat), p = unname(W$p), df = paste0(W$df1,",",W$df2), n = nobs(es_info$model))
+    } else data.table(K = 0, stat = NA_real_, p = NA_real_, df = NA, n = nobs(es_info$model))
+  }
+  list(twfe_row = twfe_row, es_info = es_info, es_pre = es_pre, diag = data.table(outcome = y, n = nobs(m_twfe), ok = TRUE))
+}
+
+# -------------------- load & identifiers --------------------
+dat <- fread(DATA_PATH)
+if (!("date" %in% names(dat))) stop("expected 'date' column in data")
+if (!inherits(dat$date, "IDate")) dat[, date := as.IDate(date)]
+cat("\n-- columns present --\n"); print(names(dat))
+
+if (!("time_id" %in% names(dat))) dat[, time_id := as.integer(factor(date))]
+dat[, treated := fifelse(country == "CZ", 1L, 0L)]
+dat[, post    := fifelse(date >= TREAT_DATE, 1L, 0L)]
+dat[, D       := treated * post]
+
+san <- dat[, .(n = .N, post_ones = sum(post == 1L), D_ones = sum(D == 1L)), by = country]
+cat("\n-- treat/post sanity --\n"); print(san)
+
+# -------------------- missingness policy --------------------
+aud_pre <- miss_audit(dat, CAND_CONTROLS); cat("\n-- missingness audit (pre) --\n"); print(aud_pre)
+aud_post <- miss_audit(dat, CAND_CONTROLS); cat("\n-- missingness audit (post) --\n"); print(aud_post)
+bad <- aud_post[pNA_all > 0.40 | pNA_treatpost > 0.05 | pNA_treatpre > 0.05 | pNA_control > 0.05, var]
+good_controls <- setdiff(CAND_CONTROLS, bad)
+cat("\n-- controls dropped (NA policy): ", ifelse(length(bad), paste(bad, collapse = ", "), "(none)"),
+    "\n-- controls kept: ", ifelse(length(good_controls), paste(good_controls, collapse = ", "), "(none)"), "\n", sep = "")
+
+# -------------------- run per-outcome --------------------
+outcomes_present <- OUTCOMES[OUTCOMES %in% names(dat)]
+cat("\noutcomes used: ", paste(outcomes_present, collapse = ", "), "\n", sep = "")
+cat("controls (candidates): ", paste(CAND_CONTROLS, collapse = ", "), "\n\n", sep = "")
+
+rows_twfe <- list(); rows_es_pre <- list(); paths_es <- list(); diags <- list()
+
+for (y in outcomes_present) {
+  kept <- select_controls(dat, y, good_controls, min_n = 100L)
+  dropped <- setdiff(good_controls, kept)
+  cat(sprintf("[diagnostics: %s ] kept: %s | dropped: %s\n",
+              y, ifelse(length(kept), paste(kept, collapse = ", "), "(none)"),
+              ifelse(length(dropped), paste(dropped, collapse = ", "), "(none)")))
+
+  res <- fit_block(dat, y, kept, TREAT_DATE)
+
+  if (!is.null(res$twfe_row)) rows_twfe[[y]] <- res$twfe_row
+  if (!is.null(res$es_pre))    rows_es_pre[[y]] <- cbind(outcome = y, res$es_pre)
+  if (!is.null(res$es_info$path)) paths_es[[y]] <- cbind(outcome = y, res$es_info$path)
+  if (!is.null(res$diag))      diags[[y]] <- res$diag
+
+  print_snapshot(y, res$twfe_row, res$es_info, if (!is.null(res$es_pre)) res$es_pre else NULL)
+}
+
+main_twfe <- rbindlist(rows_twfe, use.names = TRUE, fill = TRUE)
+es_pre    <- rbindlist(rows_es_pre, use.names = TRUE, fill = TRUE)
+es_paths  <- rbindlist(paths_es, use.names = TRUE, fill = TRUE)
+diag_tbl  <- rbindlist(diags, use.names = TRUE, fill = TRUE)
+
+# -------------------- write outputs --------------------
+fwrite(dat[1:10],            file.path(OUT_DIR, "data_head.csv"))
+fwrite(main_twfe,            file.path(OUT_DIR, "did_main_twfe.csv"))
+fwrite(es_pre,               file.path(OUT_DIR, "did_eventstudy_pretrend_tests.csv"))
+if (exists("es_paths") && length(es_paths)) {
+  fwrite(es_paths,           file.path(OUT_DIR, "did_eventstudy_paths.csv"))
+} else {
+  if (file.exists(file.path(OUT_DIR, "did_eventstudy_paths.csv"))) file.remove(file.path(OUT_DIR, "did_eventstudy_paths.csv"))
+}
+fwrite(diag_tbl,             file.path(OUT_DIR, "diagnostics.csv"))
+
+cat("\nDone. Outputs in ", OUT_DIR, ":\n",
+    "- data_head.csv\n",
+    "- did_main_twfe.csv (coef/se/t/p_naive + p_wcb for D)\n",
+    "- did_eventstudy_pretrend_tests.csv (joint pretrend)\n",
+    "- did_eventstudy_paths.csv (if ES estimated; else removed)\n",
+    "- diagnostics.csv\n", sep = "")

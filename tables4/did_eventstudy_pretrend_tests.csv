@@ -1,0 +1,15 @@
+outcome,K,stat,p,df,n
+hicp_yoy,0,,,,456
+hicp_yoy__placebo,0,,,,456
+unemp_rate,0,,,,480
+unemp_rate__placebo,0,,,,480
+hicp,0,,,,480
+hicp__placebo,0,,,,480
+imports_world_meur,0,,,,480
+imports_world_meur__placebo,0,,,,480
+exports_world_meur,0,,,,480
+exports_world_meur__placebo,0,,,,480
+log_imp,0,,,,480
+log_imp__placebo,0,,,,480
+log_exp,0,,,,480
+log_exp__placebo,0,,,,480

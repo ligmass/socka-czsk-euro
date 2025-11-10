@@ -11,10 +11,13 @@ set.seed(42)
 # ---------- config ----------
 VERBOSE   <- identical(Sys.getenv("VERBOSE","1"), "1")
 DATA_PATH <- Sys.getenv("DID_DATA", "data/monthly_panel_clean.csv")
-OUT_DIR   <- "tables5"; dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
+
+## MODIFIED: New output directory for this test ##
+OUT_DIR   <- "tables5_robust_quad_trend"; dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 OUTCOMES  <- c("hicp_yoy","unemp_rate","hicp","imports_world_meur","exports_world_meur","log_imp","log_exp")
-TREAT_DATE <- as.IDate("2009-01-01")   # main break
+TREAT_DATE <- as.IDate("2009-01-01")   # Back to the REAL date
+
 TAU_MIN <- -12L; TAU_MAX <- 18L        # ES window
 # bins: pool months to get residual dof
 BIN_EDGES <- list(
@@ -25,19 +28,17 @@ BIN_EDGES <- list(
   post7_12= c(7L,12L),
   post13_18=c(13L,18L)
 )
-REF_BIN <- "pre12_7"
+REF_BIN <- "pre6_1" # Back to our original reference
 
 # ---------- helpers ----------
 quiet <- function(x) suppressWarnings(suppressMessages(x))
 
 auto_lag <- function(T){
-  # Andrews–Monahan-ish small-sample rule; keep >=0
   L <- floor(4 * (T/100)^(2/9))
   max(0L, min(L, 12L))
 }
 
 bin_tau <- function(tau){
-  # returns a character vector of bin names or NA if tau outside all bins
   out <- rep(NA_character_, length(tau))
   for (nm in names(BIN_EDGES)){
     lo <- BIN_EDGES[[nm]][1]; hi <- BIN_EDGES[[nm]][2]
@@ -47,7 +48,6 @@ bin_tau <- function(tau){
 }
 
 vcov_failsoft <- function(fit, L){
-  # try HAC; fall back to OLS; last resort add tiny ridge
   V <- tryCatch(NeweyWest(fit, lag = L, prewhite = FALSE, adjust = TRUE),
                 error = function(e) e)
   if (inherits(V, "error") || any(!is.finite(V))){
@@ -55,7 +55,6 @@ vcov_failsoft <- function(fit, L){
                   error = function(e) e)
   }
   if (inherits(V, "error") || any(!is.finite(V))){
-    # ridge the design slightly
     X <- model.matrix(fit)
     XtX <- crossprod(X)
     lam <- 1e-8
@@ -68,10 +67,13 @@ vcov_failsoft <- function(fit, L){
   V
 }
 
-print_block <- function(lbl, dt, L, Tn, pre_W = NULL, post_W = NULL){
+print_block <- function(lbl, dt, L, Tn, gof_stats = NULL, pre_W = NULL, post_W = NULL){
   cat("\n========================\n")
   cat(sprintf("%s\n", lbl))
   cat(sprintf("Newey–West lag L = %d (T=%d)\n", L, Tn))
+  if (!is.null(gof_stats)) {
+     cat(sprintf("R-squared: %.4f, Adj. R-squared: %.4f\n", gof_stats$r2, gof_stats$ar2))
+  }
   print(dt)
   if (!is.null(pre_W)){
     cat("\n-- Joint pretrend (bins wholly <0) --\n")
@@ -94,7 +96,7 @@ wald_zero <- function(fit, V, which_coefs){
 }
 
 ## ----------------------------------------
-## MODIFIED FUNCTION
+## This is our full, robust function
 ## ----------------------------------------
 run_one_series <- function(dat, y, break_date){
   # build diff series: CZ - SK
@@ -105,17 +107,13 @@ run_one_series <- function(dat, y, break_date){
   setnames(d0, c("CZ","SK"), c("cz","sk"), skip_absent = TRUE)
   d0[, diff := cz - sk]
 
-  ## NEW: Get control variables ##
-  # Get CZ-specific controls (repo = CNB rate, fx_vol = CZK vol)
+  # Get control variables
   cz_controls <- dat[country == "CZ", .(date, repo, fx_vol)]
-  # Get SK-specific controls (mro = ECB rate)
   sk_controls <- dat[country == "SK", .(date, mro)]
   
-  # Merge controls onto the differenced data
   d0 <- merge(d0, cz_controls, by = "date", all.x = TRUE)
   d0 <- merge(d0, sk_controls, by = "date", all.x = TRUE)
   
-  # Create the differenced control variable
   d0[, policy_diff := repo - mro]
   
   # time_id & tau
@@ -125,7 +123,6 @@ run_one_series <- function(dat, y, break_date){
   if (length(t0) != 1L) return(NULL)
   d0[, tau := time_id - t0]
   
-  ## NEW: Add linear time trend ##
   d0[, trend := time_id]
 
   # restrict window & drop out-of-bin tau
@@ -135,23 +132,28 @@ run_one_series <- function(dat, y, break_date){
   # binning
   d0[, bin := bin_tau(tau)]
   
-  ## NEW: Omit NAs from outcome, bin, AND all controls ##
   keep_cols <- c("diff", "bin", "trend", "policy_diff", "fx_vol")
-  d0 <- d0[!is.na(bin)] # Bin must exist
-  d0 <- na.omit(d0, cols = keep_cols) # Omit rows with NAs in our model vars
+  d0 <- d0[!is.na(bin)] 
+  d0 <- na.omit(d0, cols = keep_cols) 
   
-  # ensure the reference bin exists and has obs
   if (!(REF_BIN %in% d0$bin)) return(NULL)
 
-  # relevel factor (ref = [-6,-1])
   d0[, bin := factor(bin, levels = unique(c(REF_BIN, setdiff(names(BIN_EDGES), REF_BIN))))]
   d0[, bin := stats::relevel(bin, ref = REF_BIN)]
 
-  # if only ref level present, skip
   if (nlevels(d0$bin) < 2L) return(NULL)
 
-  ## MODIFIED: Add trend and controls to the formula ##
-  fit <- lm(diff ~ bin + trend + policy_diff + fx_vol, data = d0)
+  ## MODIFIED: Added I(trend^2) to the formula ##
+  fit <- lm(diff ~ bin + trend + I(trend^2) + policy_diff + fx_vol, data = d0)
+  
+  # Extract GOF stats
+  s <- summary(fit)
+  gof <- data.table(
+    outcome = y,
+    n = nobs(fit),
+    r2 = s$r.squared,
+    ar2 = s$adj.r.squared
+  )
 
   # HAC
   Tn <- nrow(d0)
@@ -173,7 +175,7 @@ run_one_series <- function(dat, y, break_date){
   rep_tau <- function(nm){
     rng <- BIN_EDGES[[sub("^bin","",nm)]]
     if (is.null(rng)) rng <- BIN_EDGES[[sub("^bin","", sub("^bin","",nm))]]
-    as.integer(floor(mean(rng))) # Fixed this from our earlier debug
+    as.integer(floor(mean(rng)))
   }
   taus <- vapply(sub("^bin","", keep), function(s) {
     nm <- sub("^bin", "", s)
@@ -190,7 +192,6 @@ run_one_series <- function(dat, y, break_date){
   )[order(tau)]
 
   # joint tests
-  # bins wholly <0: all negative bins except the ref (pre12_7)
   pre_bins  <- names(BIN_EDGES)[vapply(BIN_EDGES, function(r) r[2] < 0L, logical(1))]
   pre_bins  <- setdiff(pre_bins, REF_BIN)
   pre_keep  <- paste0("bin", pre_bins)
@@ -199,7 +200,6 @@ run_one_series <- function(dat, y, break_date){
     tmp <- wald_zero(fit, V, pre_ix)
   } else list(K=0, stat=NA_real_, p=NA_real_)
 
-  # bins >=0: t0, post1_6, post7_12, post13_18 (whatever exists)
   post_bins <- names(BIN_EDGES)[vapply(BIN_EDGES, function(r) r[1] >= 0L, logical(1))]
   post_keep <- paste0("bin", post_bins)
   post_ix   <- which(cn %in% post_keep)
@@ -209,13 +209,13 @@ run_one_series <- function(dat, y, break_date){
 
   if (VERBOSE) {
     lbl <- sprintf("Outcome: %s (diff = CZ − SK) [main %s]", y, as.character(break_date))
-    print_block(lbl, out, L, Tn, pre_W, post_W)
+    print_block(lbl, out, L, Tn, gof, pre_W, post_W)
   }
 
-  out
+  list(coefs = out, gof = gof)
 }
 ## ----------------------------------------
-## END OF MODIFIED FUNCTION
+## END OF FUNCTION
 ## ----------------------------------------
 
 # ---------- load ----------
@@ -225,31 +225,37 @@ if (!inherits(dat$date, "IDate")) dat[, date := as.IDate(date)]
 cat("\n-- columns present --\n"); print(names(dat))
 
 # ---------- run ----------
-# (Using the debug-friendly loop we created)
 es_list <- list()
-cat("\n--- STARTING DEBUG RUN (ROBUST MODEL) ---\n")
+gof_list <- list() 
+
+cat("\n--- STARTING DEBUG RUN (QUADRATIC TREND TEST) ---\n")
 for (y in OUTCOMES[OUTCOMES %in% names(dat)]) {
   cat(sprintf("\nProcessing outcome: %s\n", y))
   
-  # Run *without* tryCatch to see the real error
   res <- run_one_series(dat, y, TREAT_DATE) 
   
   if (is.null(res)) {
     cat(sprintf("Function returned NULL for %s.\n", y))
-  } else if (!nrow(res)) {
+  } else if (is.null(res$coefs) || !nrow(res$coefs)) {
     cat(sprintf("Function returned an empty table for %s.\n", y))
   } else {
-    cat(sprintf("Successfully processed %s, found %d coefficients.\n", y, nrow(res)))
-    es_list[[y]] <- res
+    cat(sprintf("Successfully processed %s, found %d coefficients.\n", y, nrow(res$coefs)))
+    es_list[[y]] <- res$coefs
+    gof_list[[y]] <- res$gof 
   }
 }
 cat("\n--- DEBUG RUN COMPLETE ---\n")
 
 es_main <- if (length(es_list)) rbindlist(es_list, use.names = TRUE) else data.table()
+gof_main <- if (length(gof_list)) rbindlist(gof_list, use.names = TRUE) else data.table()
+
 if (!nrow(es_main)) {
   warning("No ES coefficients were produced. Check NA pattern in controls.")
 }
 
 # ---------- write ----------
-fwrite(es_main, file.path(OUT_DIR, "es_robust.csv"))
-cat("\nDone. Outputs in ", OUT_DIR, ":\n- es_robust.csv (binned ES with HAC SE, trend, and controls)\n", sep = "")
+fwrite(es_main, file.path(OUT_DIR, "es_quad_trend.csv"))
+fwrite(gof_main, file.path(OUT_DIR, "es_quad_trend_gof.csv"))
+cat("\nDone. Outputs in ", OUT_DIR, ":\n",
+    "- es_quad_trend.csv (Quadratic Trend coefficients)\n",
+    "- es_quad_trend_gof.csv (Quadratic Trend fit stats)\n", sep = "")

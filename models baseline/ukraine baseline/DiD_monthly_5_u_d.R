@@ -39,13 +39,13 @@ czech_labels <- c(
 
 # Czech y-axis labels with units and confidence intervals
 czech_y_labels <- c(
-  "exports_world_meur" = "Rozdíl CZ-SK [mil. EUR]",
-  "imports_world_meur" = "Rozdíl CZ-SK [mil. EUR]",
-  "log_exp" = "Efekt CZ-SK [log. diference]",
-  "log_imp" = "Efekt CZ-SK [log. diference]",
-  "hicp" = "Rozdíl CZ-SK [index. body]",
-  "hicp_yoy" = "Rozdíl CZ-SK [p.b.]",
-  "unemp_rate" = "Rozdíl CZ-SK [p.b.]"
+   "exports_world_meur" = "Rozdíl CZ-SK [mil. EUR] (s 95% IS)",
+   "imports_world_meur" = "Rozdíl CZ-SK [mil. EUR] (s 95% IS)",
+   "log_exp" = "Efekt CZ-SK [log. diference] (s 95% IS)",
+   "log_imp" = "Efekt CZ-SK [log. diference] (s 95% IS)",
+   "hicp" = "Rozdíl CZ-SK [index. body] (s 95% IS)",
+   "hicp_yoy" = "Rozdíl CZ-SK [p.b.] (s 95% IS)",
+   "unemp_rate" = "Rozdíl CZ-SK [p.b.] (s 95% IS)"
 )
 
 # ---------- helpers ----------
@@ -86,8 +86,11 @@ run_one_series_dynamic_binned <- function(dat, y, break_date){
   if (length(t0) != 1L) return(NULL)
   d0[, tau := time_id - t0]
   
-  # 3. Filter Window
-  d0 <- d0[tau >= TAU_MIN & tau <= TAU_MAX]
+  # 3. Event time and (optional) trend
+  # Keep full sample here so Pre_Tail and Post_Tail bins can populate across all months
+  d0[, trend := time_id]
+  # NOTE: original window filter removed to allow all dates (commented out)
+  # d0 <- d0[tau >= TAU_MIN & tau <= TAU_MAX]
   if (!nrow(d0)) return(NULL)
 
   # 4. Create "Hybrid" Bins
@@ -101,7 +104,7 @@ run_one_series_dynamic_binned <- function(dat, y, break_date){
   d0[, tau_factor := stats::relevel(tau_factor, ref = as.character(REF_TAU))]
 
   # 5. Run Model (Simple Spec: No controls to avoid saturation on short window)
-  fit <- lm(diff ~ tau_factor, data = d0)
+  fit <- lm(diff ~ tau_factor + trend, data = d0)
   
   # 6. Extract Diagnostics
   s <- summary(fit)
@@ -135,7 +138,8 @@ run_one_series_dynamic_binned <- function(dat, y, break_date){
   res <- rbind(res, ref_row)
   
   # Sort
-  res[, sort_idx := as.numeric(label)]
+  res[, sort_idx := NA_integer_]
+  res[grepl('^-?[0-9]+$', label), sort_idx := as.integer(label)]
   res[label == "Pre_Tail", sort_idx := -999]
   res[label == "Post_Tail", sort_idx := 999]
   res <- res[order(sort_idx)]
@@ -183,8 +187,9 @@ try({
     sub <- sub[label != "Pre_Tail" & label != "Post_Tail"]
     if (!nrow(sub)) next
     
-    # Convert label to numeric for proper x-axis spacing
-    sub[, x_pos := as.numeric(as.character(label))]
+    # Convert label to numeric only for pure numeric labels (avoid coercion warnings)
+    sub[, x_pos := NA_integer_]
+    sub[grepl('^-?[0-9]+$', label), x_pos := as.integer(label)]
     sub <- sub[!is.na(x_pos)]
     
     # Calculate confidence intervals

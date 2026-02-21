@@ -25,7 +25,7 @@ BIN_EDGES <- list(
   post7_12= c(7L,12L),
   post13_18=c(13L,18L)
 )
-REF_BIN <- "pre12_7"
+REF_BIN <- "pre6_1"
 
 # ---------- helpers ----------
 quiet <- function(x) suppressWarnings(suppressMessages(x))

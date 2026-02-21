@@ -39,13 +39,13 @@ czech_labels <- c(
 
 # Czech y-axis labels with units and confidence intervals
 czech_y_labels <- c(
-  "exports_world_meur" = "Rozdíl [mil. EUR]",
-  "imports_world_meur" = "Rozdíl [mil. EUR]",
-  "log_exp" = "Efekt [log. diference]",
-  "log_imp" = "Efekt [log. diference]",
-  "hicp" = "Rozdíl [index. body]",
-  "hicp_yoy" = "Rozdíl [p.b.]",
-  "unemp_rate" = "Rozdíl [p.b.]"
+  "exports_world_meur" = "Rozdíl CZ-SK [mil. EUR]",
+  "imports_world_meur" = "Rozdíl CZ-SK [mil. EUR]",
+  "log_exp" = "Efekt CZ-SK [log. diference]",
+  "log_imp" = "Efekt CZ-SK [log. diference]",
+  "hicp" = "Rozdíl CZ-SK [index. body]",
+  "hicp_yoy" = "Rozdíl CZ-SK [p.b.]",
+  "unemp_rate" = "Rozdíl CZ-SK [p.b.]"
 )
 
 # ---------- helpers ----------

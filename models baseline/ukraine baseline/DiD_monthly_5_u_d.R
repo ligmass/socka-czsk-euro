@@ -11,7 +11,8 @@ set.seed(42)
 
 # ---------- config ----------
 DATA_PATH <- Sys.getenv("DID_DATA", "data/monthly_panel_clean.csv")
-OUT_DIR   <- file.path("result tables baseline", "ukraine", "dynamic_ukraine"); dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_RAW   <- file.path("result tables baseline raw", "ukraine"); dir.create(OUT_DIR_RAW, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_FINAL <- file.path("result tables baseline final", "ukraine"); dir.create(OUT_DIR_FINAL, showWarnings = FALSE, recursive = TRUE)
 
 OUTCOMES  <- c("hicp_yoy","unemp_rate","hicp","imports_world_meur","exports_world_meur","log_imp","log_exp")
 
@@ -22,9 +23,9 @@ TREAT_DATE <- as.IDate("2022-02-01")
 TAU_MIN <- -12L; TAU_MAX <- 18L
 REF_TAU <- -1L
 
-# Inner Window for granular detail (-12 to +12 months)
+# Inner Window for granular detail (-12 to +18 months)
 INNER_MIN <- -12L
-INNER_MAX <- 12L
+INNER_MAX <- 18L
 
 # Czech translations for variable names
 czech_labels <- c(
@@ -173,7 +174,7 @@ for (y in OUTCOMES[OUTCOMES %in% names(dat)]) {
 }
 
 es_dynamic <- rbindlist(es_list)
-fwrite(es_dynamic, file.path(OUT_DIR, "es_dynamic_ukraine.csv"))
+fwrite(es_dynamic, file.path(OUT_DIR_RAW, "es_dynamic_ukraine_binned.csv"))
 
 # Create academic event-study plots per outcome
 file_prefix <- "ukraine"
@@ -213,17 +214,20 @@ try({
         x = "Měsíce relativně k události",
         y = ifelse(y %in% names(czech_y_labels), czech_y_labels[y], "Odhadovaný efekt")
       ) +
+      scale_x_continuous(breaks = seq(-12, 18, by = 3)) +
+      coord_cartesian(xlim = c(-12.5, 18.5)) +
       theme(
         plot.title = element_text(face = "bold", hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5, size = 12),
         panel.grid = element_blank()
       )
     
-    ggsave(filename = file.path(OUT_DIR, paste0("es_dynamic_", file_prefix, "_", y, ".png")), 
+    ggsave(filename = file.path(OUT_DIR_FINAL, paste0("es_dynamic_", file_prefix, "_", y, ".png")), 
            plot = p, width = 8, height = 5, dpi = 300)
   }
 }, silent = TRUE)
 
-cat("\nDone. Event study plots saved in ", OUT_DIR, "\n", sep = "")
+cat("\nDone. Raw CSV saved in ", OUT_DIR_RAW, "\n", sep = "")
+cat("Done. Event study plots saved in ", OUT_DIR_FINAL, "\n", sep = "")
 
 cat("\nDone.\n")

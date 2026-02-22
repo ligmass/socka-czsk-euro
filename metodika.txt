@@ -1,0 +1,116 @@
+METODOLOGIE 
+4.1  Soubor dat 
+Empirická  analýza  je  založena  na  souboru  makroekonomických  časových  řad  pro  Českou 
+republiku a Slovensko v měsíční frekvenci. Sledované období pokrývá interval od ledna 2004 
+do prosince 2023, což představuje celkem 240 pozorování. Počátek časové řady byl zvolen s 
+ohledem na vstup obou zemí do Evropské unie, což zajišťuje vysokou míru harmonizace dat a 
+17 Federálního rezervního systému  
+16 Index volatility CBOE 
+ 
+16 
+ 
+institucionální  srovnatelnost.  Primárním  zdrojem  dat  je  statistická  databáze  Eurostat.  Pro 
+potřeby ekonometrického modelu byly vybrány následující proměnné, které reflektují klíčové 
+oblasti hospodářské stability. 
+Závisle  proměnné  (Y):  Cenová  stabilita  je  měřena  pomocí  Harmonizovaného  indexu 
+spotřebitelských  cen  (HICP)  v  meziročním  vyjádření.  Stabilita  reálné  ekonomiky  je 
+aproximována mírou nezaměstnanosti. Vnější ekonomické vztahy jsou zachyceny objemem 
+exportu  a  importu,  které  byly  pro  účely  modelu  logaritmovány  k  ošetření  nelinearit  a 
+interpretaci v procentních změnách. 
+Proměnné pro izolaci mechanismu (X)18: Pro testování mechanismu měnové politiky model 
+dále využívá úrokový diferenciál, definovaný jako rozdíl mezi 2T repo sazbou ČNB a hlavní 
+refinanční sazbou ECB. Dále je zahrnuta volatilita měnového kurzu CZK/EUR. 
+ 
+4.2  Model 
+Pro zjištění vlivu monetárního režimu na ekonomickou stabilitu tato studie využívá metodu 
+Difference-Series  Event  Study.  Ta  je  založena  na  standardním  rámci 
+Difference-in-Differences19, který je upraven pro porovnávání časových řad. Pracujeme pouze 
+se dvěma vzorky, proto panel dvou zemí zmenšujeme na jednu řadu diferencí, čímž řešíme 
+problém s identifikací příčin změn, který je u komparativních studií s malým počtem vzorků 
+nevyhnutelný. Zároveň se nám daří zachovat rigorózní kontrafaktuální logiku. 
+Definujeme výslednou proměnnou  t  jako rozdíl mezi léčenou jednotkou (SK) a kontrolní ∆𝑌
+jednotkou (CZ) v čase t: 
+    ∆𝑌𝑡=𝑌𝐶𝑍,𝑡− 𝑌𝑆𝐾,𝑡
+Tímto  krokem  eliminujeme  časově  invariantní  heterogenitu  mezi  jednotkami,  čímž 
+dosahujeme stejného výsledku jako při využití unit fixed effects ve standardním panelovém 
+modelu. 
+19 Dále DiD 
+18 Více v sekci 4.3.4 
+ 
+17 
+ 
+Pro  určení  efektu  léčby  a  jeho  postupné evoluce využíváme rámec nastolený Jacobsonem, 
+LaLonde a Sullivanem (1993). Ten nám dovoluje otestovat náš předpoklad společného trendu 
+pohybu před šokem a zachytit vliv efektu napříč časem. 
+Rovnice pro estimování následuje: 
+ ∆𝑌𝑡=α+λ𝑡+𝑘εκ
+∑β𝑘𝐵𝑖𝑛𝑘(𝑡)+ε𝑡
+: Počáteční rozdíl mezi Českem a Slovenskem. α
+: Lineární časový trend, který zachycuje přirozenou dlouhodobou divergenci či konvergenci λ𝑡
+obou ekonomik nezávisle na zkoumaných šocích. 
+: Skupina umělých proměnných, které reprezentují časové období relativně k události, 𝐵𝑖𝑛𝑘(𝑡)
+dle vzoru metodologie Jacobsona, LaLonde a Sullivana (1993). Biny pro období před léčbou 
+slouží pro kontrolu věrohodnosti testu. Odmítnutí nulové hypotézy by indikovalo porušení 
+předpokladu společného pohybu testovaných ekonomik. Biny pro období po léčbě slouží k 
+zachycení efektu šoků způsobených monetárním režimem. Pro statistickou inferenci v 
+tabulkách agregujeme data do šestiměsíčních binů, abychom zvýšili sílu testu a vyhladili 
+krátkodobou volatilitu. Pro grafickou vizualizaci a detailní analýzu načasování využíváme 
+jemnější specifikaci s měsíčními umělými proměnnými. 
+: Chybový člen ε𝑡
+Inference a standardní chyby 
+vzhledem  k  měsíční  frekvenci  makroekonomických  dat  se  zdá  pravděpodobné, že   bude ε𝑡
+vykazovat  sériovou  korelaci.  V  takovém  případě  by  standardní  OLS  inference  znamenala 
+systematické podhodnocení standardních chyb, což by zvýšilo riziko chyby prvního druhu. Z 
+tohoto  důvodu  počítáme  standardní  chyby  jednotné  s  heteroskedasticitou  a  autokorelací 
+(HAC)  využitím  estimátoru  navrženého  Neweyem  a Westem (1987). Délka zpoždění20 pro 
+Newey-Westovo jádro je určena pomocí automatické procedury výběru šířky pásma21. 
+21 Data-driven bandwidth selection 
+20 Lag length 
+ 
+18 
+ 
+4.3  Kontroly robustnosti a specificity 
+Za účelem zajištění věrohodnosti estimovaných koeficientů a za cílem zjištění, zda za nimi 
+namísto kauzálních vztahů nestojí pouze falešné korelace či déle existující dlouhodobé trendy 
+náš základní model podrobujeme zátěžovým testům. 
+4.3.1  Test paralelních trendů 
+Modely stavěné na základu DiD stojí na předpokladu, že pokud by nedošlo k události, jejíž 
+vliv  se  snaží  izolovat,  trajektorie  výsledného  rozdílu  testovaných  skupin  by  následovala 
+konstantní trajektorii (Card & Krueger, 1994). Tento předpoklad testujeme pomocí již dříve 
+zmíněného  rámce  (Jacobson,  LaLonde  a  Sullivan  1993).  Kontrolou  koeficientů 
+vyprodukovaných pro biny před datem léčby ověřujeme, zda se odchylka nezvětšovala ještě 
+před samotným šokem. Statistická nevýznamnost těchto předtrendových koeficien tů 
+potvrzuje věrohodnost našeho studijního návrhu. 
+4.3.2  Časový placebo test 
+Abychom  vyloučili  možnost,  že  naše  výsledky  jsou  způsobeny  náhodnými  strukturálními 
+změnami  či  náhodnou  volatilitou  nezávislou  na  šoku,  Provádíme  časový  placebo  test 
+(Bertrand,  Duflo,  &  Mullainathan,  2004).   Při  provádění  tohoto  testu  reestimujeme 
+koeficienty na základě fiktivního data léčby, které vždy posouváme přesně rok před samotný 
+šok.  Statisticky  insignifikantní  nálezy  v  daném  období  slouží  jako  silný  důkaz  specificity 
+nalezených efektů pouze pro období šoku. 
+4.3.3  Nelinearita a kvadratické trendy 
+Základní  model  předpokládá,  že  se  ekonomiky vzdalují lineárním tempem. Abychom měli 
+jistotu,  že  model  nezkresluje  nějaký  nelineární  vývoj,  přidali  jsme  i  kvadratický  trend. 
+Stabilita estimování koeficientů i po přidání tohoto nelineárního trendu ukazuje, že výsledky 
+jsou odolné vůči více komplexním dynamikám v makroekonomických datech.     
+4.3.4  Test mechanismu měnové politiky 
+Kromě  základních  modelů, které odhadují celkový efekt zkoumaných událostí, testujeme u 
+všech tří epizod22 i roli nezávislé měnové politiky, a to jak jejího úrokového, tak kurzového 
+kanálu. Náš základní model záměrně jako kontrolní proměnné nezahrnuje úrokový diferenciál 
+22 přijetí eura, COVID-19, válka na Ukrajině 
+ 
+19 
+ 
+ani volatilitu měnového kurzu. U krizových šoků totiž obě tyto veličiny bezprostředně reagují 
+na  vývoj  ekonomiky,  a  tedy  plní  funkci  automatického  a  aktivního  stabilizátoru.  Jejich 
+zahrnutí do základní specifikace by představovalo metodologický problém tzv. bad controls. 
+V  případě  přijetí  eura  je  navíc  ztráta  kurzového  tlumiče  a  nezávislých  úrokových  sazeb 
+samotnou podstatou zkoumané události. 
+Pro  detailnější  analýzu  mechanismu  však  vytváříme verzi modelu, do které tyto proměnné 
+cíleně  přidáváme.  Porovnání  odhadnutých  koeficientů  mezi  čistým  základním  a  těmito 
+alternativními  modely  nám  umožňuje  ilustrovat  klíčové  strukturální  rozdíly  mezi  oběma 
+ekonomikami.  V  případě  krizových  epizod23  tento  rozdíl  ukazuje,  jakou  část 
+makroekonomického  dopadu  absorbovaly  samotné  nástroje  nezávislé  měnové  politiky.  V 
+případě  slovenské  adopce  eura  nám  tento  test  naopak  umožňuje izolovat čistý strukturální 
+efekt  plynoucí  z  odstranění  transakčních  nákladů  a  kurzového  rizika  od  vlivu  pouhé 
+divergence úrokových sazeb a fluktuací kurzu.

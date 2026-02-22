@@ -7,13 +7,15 @@ suppressPackageStartupMessages({
 })
 
 set.seed(42)
+source("models baseline/utils_formatting.R")
 
 # ---------- config ----------
 VERBOSE   <- identical(Sys.getenv("VERBOSE","1"), "1")
 DATA_PATH <- Sys.getenv("DID_DATA", "data/monthly_panel_clean.csv")
 
 ## MODIFIED: New output directory for this test ##
-OUT_DIR   <- file.path("result tables baseline", "adoption", "placebo_2008"); dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_RAW   <- file.path("result tables baseline raw", "adoption"); dir.create(OUT_DIR_RAW, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_FINAL <- file.path("result tables baseline final", "adoption"); dir.create(OUT_DIR_FINAL, showWarnings = FALSE, recursive = TRUE)
 
 OUTCOMES  <- c("hicp_yoy","unemp_rate","hicp","imports_world_meur","exports_world_meur","log_imp","log_exp")
 
@@ -132,14 +134,18 @@ run_one_series <- function(dat, y, break_date){
 
   # binning
   d0[, bin := bin_tau(tau)]
-  
+
+  # Fill tail bins so lm() will not drop observations due to NA bins
+  d0[is.na(bin) & tau < TAU_MIN, bin := "Pre_Tail"]
+  d0[is.na(bin) & tau > TAU_MAX, bin := "Post_Tail"]
+
   keep_cols <- c("diff", "bin", "trend")
-  d0 <- d0[!is.na(bin)]
   d0 <- na.omit(d0, cols = keep_cols)
   
   if (!(REF_BIN %in% d0$bin)) return(NULL)
 
-  d0[, bin := factor(bin, levels = unique(c(REF_BIN, setdiff(names(BIN_EDGES), REF_BIN))))]
+  level_order <- unique(c("Pre_Tail", "Post_Tail", REF_BIN, setdiff(names(BIN_EDGES), REF_BIN)))
+  d0[, bin := factor(bin, levels = level_order)]
   d0[, bin := stats::relevel(bin, ref = REF_BIN)]
 
   if (nlevels(d0$bin) < 2L) return(NULL)
@@ -208,7 +214,7 @@ run_one_series <- function(dat, y, break_date){
   } else list(K=0, stat=NA_real_, p=NA_real_)
 
   if (VERBOSE) {
-    lbl <- sprintf("Outcome: %s (diff = CZ − SK) [PLACEBO %s]", y, as.character(break_date))
+    lbl <- sprintf("Outcome: %s (diff = CZ − SK) [Adoption Placebo (2008) %s]", y, as.character(break_date))
     print_block(lbl, out, L, Tn, gof, pre_W, post_W)
   }
 
@@ -259,5 +265,6 @@ if (nrow(gof_main) && nrow(es_main)) {
   es_main <- merge(es_main, gof_main, by = "outcome", all.x = TRUE)
 }
 
-fwrite(es_main, file.path(OUT_DIR, "es_placebo_2008.csv"))
-cat("\nDone. Outputs in ", OUT_DIR, ":\n- es_placebo_2008.csv (PLACEBO coefficients with GOF columns)\n", sep = "")
+fwrite(es_main, file.path(OUT_DIR_RAW, "es_placebo_2008_placebo.csv"))
+export_academic_table(es_main, file.path(OUT_DIR_FINAL, "es_placebo_2008_placebo_academic.csv"))
+cat("\nDone. Outputs in ", OUT_DIR_RAW, ":\n- es_placebo_2008_placebo.csv (Adoption Placebo (2008) coefficients with GOF columns)\n", sep = "")

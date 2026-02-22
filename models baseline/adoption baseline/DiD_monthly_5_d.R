@@ -11,7 +11,8 @@ set.seed(42)
 
 # ---------- config ----------
 DATA_PATH <- Sys.getenv("DID_DATA", "data/monthly_panel_clean.csv")
-OUT_DIR   <- file.path("result tables baseline", "adoption", "dynamic_2009_binned_tails"); dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_RAW   <- file.path("result tables baseline raw", "adoption"); dir.create(OUT_DIR_RAW, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_FINAL <- file.path("result tables baseline final", "adoption"); dir.create(OUT_DIR_FINAL, showWarnings = FALSE, recursive = TRUE)
 
 OUTCOMES  <- c("hicp_yoy","unemp_rate","hicp","imports_world_meur","exports_world_meur","log_imp","log_exp")
 TREAT_DATE <- as.IDate("2009-01-01")
@@ -22,7 +23,7 @@ REF_TAU <- -1L
 
 # Define the "Inner Window" where we want granular monthly detail
 INNER_MIN <- -12L
-INNER_MAX <- 12L
+INNER_MAX <- 18L
 
 # Czech translations for variable names
 czech_labels <- c(
@@ -92,9 +93,9 @@ run_one_series_dynamic_binned <- function(dat, y, break_date){
   if (!nrow(d0)) return(NULL)
 
   # 4. Create "Hybrid" Bins
-  # - Specific months for the inner window (-6 to +6)
-  # - "Pre_Tail" for everything before -6
-  # - "Post_Tail" for everything after +6
+  # - Specific months for the inner window (-12 to +18)
+  # - "Pre_Tail" for everything before -12
+  # - "Post_Tail" for everything after +18
   d0[, bin_label := as.character(tau)]
   d0[tau < INNER_MIN, bin_label := "Pre_Tail"]
   d0[tau > INNER_MAX, bin_label := "Post_Tail"]
@@ -180,7 +181,7 @@ for (y in OUTCOMES[OUTCOMES %in% names(dat)]) {
 }
 
 es_dynamic <- rbindlist(es_list)
-fwrite(es_dynamic, file.path(OUT_DIR, "es_dynamic_2009_binned.csv"))
+fwrite(es_dynamic, file.path(OUT_DIR_RAW, "es_dynamic_2009_binned.csv"))
 
 # Create academic event-study plots per outcome
 file_prefix <- "adoption"
@@ -220,15 +221,18 @@ try({
         x = "Měsíce relativně k události",
         y = ifelse(y %in% names(czech_y_labels), czech_y_labels[y], "Odhadovaný efekt")
       ) +
+      scale_x_continuous(breaks = seq(-12, 18, by = 3)) +
+      coord_cartesian(xlim = c(-12.5, 18.5)) +
       theme(
         plot.title = element_text(face = "bold", hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5, size = 12),
         panel.grid = element_blank()
       )
     
-    ggsave(filename = file.path(OUT_DIR, paste0("es_dynamic_", file_prefix, "_", y, ".png")), 
+    ggsave(filename = file.path(OUT_DIR_FINAL, paste0("es_dynamic_", file_prefix, "_", y, ".png")), 
            plot = p, width = 8, height = 5, dpi = 300)
   }
 }, silent = TRUE)
 
-cat("\nDone. Event study plots saved in ", OUT_DIR, "\n", sep = "")
+cat("\nDone. Raw CSV saved in ", OUT_DIR_RAW, "\n", sep = "")
+cat("Done. Event study plots saved in ", OUT_DIR_FINAL, "\n", sep = "")

@@ -7,9 +7,11 @@ suppressPackageStartupMessages({
 })
 
 set.seed(42)
+source("models baseline/utils_formatting.R")
 
 DATA_PATH <- Sys.getenv("DID_DATA", "data/monthly_panel_clean.csv")
-OUT_DIR   <- file.path("result tables baseline", "ukraine", "ukraine_quad"); dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_RAW   <- file.path("result tables baseline raw", "ukraine"); dir.create(OUT_DIR_RAW, showWarnings = FALSE, recursive = TRUE)
+OUT_DIR_FINAL <- file.path("result tables baseline final", "ukraine"); dir.create(OUT_DIR_FINAL, showWarnings = FALSE, recursive = TRUE)
 
 OUTCOMES  <- c("hicp_yoy","unemp_rate","hicp","imports_world_meur","exports_world_meur","log_imp","log_exp")
 TREAT_DATE <- as.IDate("2022-02-01")
@@ -35,9 +37,13 @@ run_one_series <- function(dat, y, break_date){
   d0 <- d0[order(date)]; d0[, time_id := as.integer(factor(date, levels = sort(unique(date))))]; t0 <- unique(d0[date == break_date, time_id]); if (length(t0) != 1L) return(NULL); d0[, tau := time_id - t0]; d0[, trend := time_id]
   # FIXED: Removed hard filter to preserve all observations for tails
   d0[, bin := bin_tau(tau)]
-  keep_cols <- c("diff", "bin", "trend"); d0 <- d0[!is.na(bin)]; d0 <- na.omit(d0, cols = keep_cols)
+  # Fill tail bins so lm() will not drop observations due to NA bins
+  d0[is.na(bin) & tau < TAU_MIN, bin := "Pre_Tail"]
+  d0[is.na(bin) & tau > TAU_MAX, bin := "Post_Tail"]
+  keep_cols <- c("diff", "bin", "trend"); d0 <- na.omit(d0, cols = keep_cols)
   if (!(REF_BIN %in% d0$bin)) return(NULL)
-  d0[, bin := factor(bin, levels = unique(c(REF_BIN, setdiff(names(BIN_EDGES), REF_BIN))))]; d0[, bin := stats::relevel(bin, ref = REF_BIN)]
+  level_order <- unique(c("Pre_Tail", "Post_Tail", REF_BIN, setdiff(names(BIN_EDGES), REF_BIN)))
+  d0[, bin := factor(bin, levels = level_order)]; d0[, bin := stats::relevel(bin, ref = REF_BIN)]
   if (nlevels(d0$bin) < 2L) return(NULL)
 
   # MODIFIED: Added I(trend^2)
@@ -58,10 +64,26 @@ run_one_series <- function(dat, y, break_date){
   list(coefs = out, gof = gof)
 }
 
-dat <- fread(DATA_PATH); if (!inherits(dat$date, "IDate")) dat[, date := as.IDate(date)]
-es_list <- list(); gof_list <- list(); cat("\n--- STARTING UKRAINE QUAD TEST ---\n")
-for (y in OUTCOMES[OUTCOMES %in% names(dat)]) { res <- run_one_series(dat, y, TREAT_DATE); if (!is.null(res) && nrow(res$coefs) > 0) { es_list[[y]] <- res$coefs; gof_list[[y]] <- res$gof } }
+dat <- fread(DATA_PATH)
+if (!inherits(dat$date, "IDate")) dat[, date := as.IDate(date)]
+
+es_list <- list()
+gof_list <- list()
+cat("\n--- STARTING UKRAINE QUAD TEST ---\n")
+
+for (y in OUTCOMES[OUTCOMES %in% names(dat)]) {
+  res <- run_one_series(dat, y, TREAT_DATE)
+  if (!is.null(res) && nrow(res$coefs) > 0) {
+    es_list[[y]] <- res$coefs
+    gof_list[[y]] <- res$gof
+  }
+}
 es_main <- if (length(es_list)) rbindlist(es_list, use.names = TRUE) else data.table()
 gof_main <- if (length(gof_list)) rbindlist(gof_list, use.names = TRUE) else data.table()
-if (nrow(gof_main) && nrow(es_main)) { es_main <- merge(es_main, gof_main, by = "outcome", all.x = TRUE) }
-fwrite(es_main, file.path(OUT_DIR, "es_ukraine_quad.csv")); cat("\nDone. Outputs in ", OUT_DIR, ":\n- es_ukraine_quad.csv (coefficients with GOF columns)\n", sep = "")
+if (nrow(gof_main) && nrow(es_main)) {
+  es_main <- merge(es_main, gof_main, by = "outcome", all.x = TRUE)
+}
+
+fwrite(es_main, file.path(OUT_DIR_RAW, "es_ukraine_quad.csv"))
+export_academic_table(es_main, file.path(OUT_DIR_FINAL, "es_ukraine_quad_academic.csv"))
+cat("\nDone. Outputs in ", OUT_DIR_RAW, ":\n- es_ukraine_quad.csv (coefficients with GOF columns)\n", sep = "")

@@ -40,7 +40,12 @@ auto_lag <- function(T){
 }
 
 bin_tau <- function(tau){
+  # returns a character vector of bin names or tail indicator
   out <- rep(NA_character_, length(tau))
+  # Assign tails first for out-of-range observations
+  out[tau < TAU_MIN] <- "Pre_Tail"
+  out[tau > TAU_MAX] <- "Post_Tail"
+  # Then assign defined bins
   for (nm in names(BIN_EDGES)){
     lo <- BIN_EDGES[[nm]][1]; hi <- BIN_EDGES[[nm]][2]
     out[tau >= lo & tau <= hi] <- nm
@@ -132,8 +137,7 @@ run_one_series <- function(dat, y, break_date){
   
   d0[, trend := time_id]
 
-  d0 <- d0[tau >= TAU_MIN & tau <= TAU_MAX]
-  if (!nrow(d0)) return(NULL)
+  # FIXED: Removed hard filter to preserve all observations for tails
 
   d0[, bin := bin_tau(tau)]
   

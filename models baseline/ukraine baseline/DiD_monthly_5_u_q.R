@@ -19,7 +19,7 @@ BIN_EDGES <- list(pre12_7 = c(-12L,-7L), pre6_1 = c(-6L,-1L), t0 = c(0L,0L), pos
 REF_BIN <- "pre6_1"
 
 auto_lag <- function(T){ L <- floor(4 * (T/100)^(2/9)); max(0L, min(L, 12L)) }
-bin_tau <- function(tau){ out <- rep(NA_character_, length(tau)); for (nm in names(BIN_EDGES)){ lo <- BIN_EDGES[[nm]][1]; hi <- BIN_EDGES[[nm]][2]; out[tau >= lo & tau <= hi] <- nm }; out }
+bin_tau <- function(tau){ out <- rep(NA_character_, length(tau)); out[tau < TAU_MIN] <- "Pre_Tail"; out[tau > TAU_MAX] <- "Post_Tail"; for (nm in names(BIN_EDGES)){ lo <- BIN_EDGES[[nm]][1]; hi <- BIN_EDGES[[nm]][2]; out[tau >= lo & tau <= hi] <- nm }; out }
 vcov_failsoft <- function(fit, L){ V <- tryCatch(NeweyWest(fit, lag = L, prewhite = FALSE, adjust = TRUE), error = function(e) e); if (inherits(V, "error") || any(!is.finite(V))) V <- tryCatch(vcov(fit), error = function(e) e); if (inherits(V, "error") || any(!is.finite(V))) { X <- model.matrix(fit); V <- matrix(NA_real_, ncol(X), ncol(X)) }; V }
 
 wald_zero <- function(fit, V, which_coefs){ if (length(which_coefs) == 0) return(list(K=0, stat=NA_real_, p=NA_real_)); b <- coef(fit)[which_coefs]; Vsub <- V[which_coefs, which_coefs, drop = FALSE]; stat <- tryCatch(as.numeric(t(b) %*% solve(Vsub, b)), error = function(e) NA_real_); pval <- if (is.finite(stat)) pchisq(stat, df = length(which_coefs), lower.tail = FALSE) else NA_real_; list(K = length(which_coefs), stat = stat, p = pval) }
@@ -33,7 +33,8 @@ run_one_series <- function(dat, y, break_date){
   
   d0 <- d0
   d0 <- d0[order(date)]; d0[, time_id := as.integer(factor(date, levels = sort(unique(date))))]; t0 <- unique(d0[date == break_date, time_id]); if (length(t0) != 1L) return(NULL); d0[, tau := time_id - t0]; d0[, trend := time_id]
-  d0 <- d0[tau >= TAU_MIN & tau <= TAU_MAX]; if (!nrow(d0)) return(NULL); d0[, bin := bin_tau(tau)]
+  # FIXED: Removed hard filter to preserve all observations for tails
+  d0[, bin := bin_tau(tau)]
   keep_cols <- c("diff", "bin", "trend"); d0 <- d0[!is.na(bin)]; d0 <- na.omit(d0, cols = keep_cols)
   if (!(REF_BIN %in% d0$bin)) return(NULL)
   d0[, bin := factor(bin, levels = unique(c(REF_BIN, setdiff(names(BIN_EDGES), REF_BIN))))]; d0[, bin := stats::relevel(bin, ref = REF_BIN)]
